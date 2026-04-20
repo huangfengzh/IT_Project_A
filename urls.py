@@ -1,11 +1,10 @@
 from django.urls import path
 from . import views
 
-app_name = 'alerts'
+app_name = 'monitoring'
 
 urlpatterns = [
-    path('', views.alert_list, name='alert_list'),
-    path('create/', views.create_alert_rule, name='create_rule'),
-    path('delete/<int:pk>/', views.delete_alert_rule, name='delete_rule'),
-    path('resolve/<int:pk>/', views.resolve_alert, name='resolve_alert'),
+    path('', views.dashboard, name='dashboard'),
+    path('greenhouse/<int:pk>/', views.greenhouse_detail, name='greenhouse_detail'),
+    path('greenhouse/<int:pk>/history/', views.history_view, name='history'),
 ]

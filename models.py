@@ -1,80 +1,51 @@
 from django.db import models
 from django.contrib.auth.models import User
-from monitoring.models import Greenhouse
+from django.utils import timezone
 
 
-class AlertRule(models.Model):
-    """Defines threshold rules for sensor data alerts."""
+class Greenhouse(models.Model):
+    """Represents a physical greenhouse unit."""
 
-    METRIC_CHOICES = [
-        ('temperature', 'Temperature'),
-        ('humidity', 'Humidity'),
-        ('soil_moisture', 'Soil Moisture'),
-        ('light_intensity', 'Light Intensity'),
-        ('co2_level', 'CO2 Level'),
-    ]
-    CONDITION_CHOICES = [
-        ('above', 'Above'),
-        ('below', 'Below'),
-    ]
-    SEVERITY_CHOICES = [
-        ('low', 'Low'),
-        ('medium', 'Medium'),
-        ('high', 'High'),
-        ('critical', 'Critical'),
-    ]
-
-    greenhouse = models.ForeignKey(
-        Greenhouse, on_delete=models.CASCADE, related_name='alert_rules'
-    )
-    metric = models.CharField(max_length=20, choices=METRIC_CHOICES)
-    condition = models.CharField(max_length=10, choices=CONDITION_CHOICES)
-    threshold_value = models.FloatField()
-    severity = models.CharField(max_length=10, choices=SEVERITY_CHOICES, default='medium')
+    name = models.CharField(max_length=100)
+    location = models.CharField(max_length=200, blank=True, default='')
+    description = models.TextField(blank=True, default='')
+    owner = models.ForeignKey(User, on_delete=models.CASCADE, related_name='greenhouses')
     is_active = models.BooleanField(default=True)
-    created_by = models.ForeignKey(User, on_delete=models.CASCADE)
     created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
 
     class Meta:
-        ordering = ['-created_at']
+        ordering = ['name']
+
+    def __str__(self):
+        return self.name
+
+    def latest_reading(self):
+        return self.sensor_readings.order_by('-timestamp').first()
+
+
+class SensorReading(models.Model):
+    """Records sensor data from a greenhouse at a point in time."""
+
+    greenhouse = models.ForeignKey(
+        Greenhouse, on_delete=models.CASCADE, related_name='sensor_readings'
+    )
+    temperature = models.FloatField(help_text='Temperature in Celsius')
+    humidity = models.FloatField(help_text='Relative humidity in %')
+    soil_moisture = models.FloatField(help_text='Soil moisture in %')
+    light_intensity = models.FloatField(help_text='Light intensity in lux')
+    co2_level = models.FloatField(default=400.0, help_text='CO2 level in ppm')
+    timestamp = models.DateTimeField(default=timezone.now, db_index=True)
+
+    class Meta:
+        ordering = ['-timestamp']
+        indexes = [
+            models.Index(fields=['greenhouse', '-timestamp']),
+        ]
 
     def __str__(self):
         return (
-            f"{self.greenhouse.name}: {self.get_metric_display()} "
-            f"{self.get_condition_display()} {self.threshold_value}"
+            f"{self.greenhouse.name} - "
+            f"T:{self.temperature}C H:{self.humidity}% "
+            f"@ {self.timestamp:%Y-%m-%d %H:%M}"
         )
-
-    def check_reading(self, reading):
-        """Check if a sensor reading triggers this alert rule."""
-        value = getattr(reading, self.metric, None)
-        if value is None:
-            return False
-        if self.condition == 'above':
-            return value > self.threshold_value
-        return value < self.threshold_value
-
-
-class AlertLog(models.Model):
-    """Records triggered alerts."""
-
-    alert_rule = models.ForeignKey(
-        AlertRule, on_delete=models.CASCADE, related_name='logs'
-    )
-    greenhouse = models.ForeignKey(
-        Greenhouse, on_delete=models.CASCADE, related_name='alert_logs'
-    )
-    triggered_value = models.FloatField()
-    message = models.TextField()
-    is_resolved = models.BooleanField(default=False)
-    resolved_at = models.DateTimeField(null=True, blank=True)
-    resolved_by = models.ForeignKey(
-        User, null=True, blank=True, on_delete=models.SET_NULL
-    )
-    created_at = models.DateTimeField(auto_now_add=True)
-
-    class Meta:
-        ordering = ['-created_at']
-
-    def __str__(self):
-        status = 'Resolved' if self.is_resolved else 'Active'
-        return f"[{status}] {self.greenhouse.name}: {self.message[:50]}"
